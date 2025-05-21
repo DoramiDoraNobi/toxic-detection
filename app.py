@@ -1,74 +1,66 @@
 import streamlit as st
 import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import re
 import gdown
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Inisialisasi awal
-model = None
-tokenizer = None
+# Fungsi untuk normalisasi teks
+def normalize_text(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\d+', '', text)
+    return ' '.join(text.split())
 
-def init_model():
-    global model, tokenizer
-    try:
-        # Download model
-        url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa"
-        output = "best_model.pt"
-        gdown.download(url, output, quiet=True)
-        
-        # Load model dengan config yang benar
-        model = AutoModelForSequenceClassification.from_pretrained(
-            "flax-community/indonesian-roberta-base",
-            num_labels=1,
-            ignore_mismatched_sizes=True
-        )
-        model.load_state_dict(torch.load(output, map_location='cpu'))
-        
-        # Inisialisasi tokenizer
-        tokenizer = AutoTokenizer.from_pretrained("flax-community/indonesian-roberta-base")
-        
-    except Exception as e:
-        st.error(f"Gagal memuat model: {str(e)}")
-        st.stop()
-
+# Cache model dan tokenizer hanya sekali di Streamlit
 @st.cache_resource
-def load_resources():
-    init_model()
+def load_model_tokenizer():
+    # Download model dari Google Drive
+    url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa"
+    output = "best_model.pt"
+    gdown.download(url, output, quiet=True)
+
+    # Load model
+    model = AutoModelForSequenceClassification.from_pretrained(
+        "flax-community/indonesian-roberta-base",
+        num_labels=1
+    )
+    model.load_state_dict(torch.load(output, map_location="cpu"))
+    model.eval()
+
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained("flax-community/indonesian-roberta-base")
     return model, tokenizer
 
-# Panggil inisialisasi
-load_resources()
+# Inisialisasi model dan tokenizer
+model, tokenizer = load_model_tokenizer()
 
-def predict_toxicity(text):
-    try:
-        # Normalisasi teks
-        text = re.sub(r'[^\w\s]', '', text.lower()).strip()
-        
-        # Tokenisasi
-        inputs = tokenizer(
-            text,
-            max_length=512,
-            padding='max_length',
-            truncation=True,
-            return_tensors="pt"
-        )
-        
-        # Prediksi
-        with torch.no_grad():
-            outputs = model(**inputs)
-            
-        return torch.sigmoid(outputs.logits.squeeze()).item()
-        
-    except Exception as e:
-        st.error(f"Error prediksi: {str(e)}")
-        return 0.5
+# Fungsi prediksi
+def predict_toxicity(text: str) -> float:
+    normalized = normalize_text(text)
+    inputs = tokenizer(
+        normalized,
+        padding="max_length",
+        truncation=True,
+        max_length=512,
+        return_tensors="pt"
+    )
+    with torch.no_grad():
+        outputs = model(**inputs)
+    score = torch.sigmoid(outputs.logits.squeeze()).item()
+    return score
 
-# UI
-st.title('🔍 Deteksi Komentar Toxic')
-user_input = st.text_area("Masukkan teks:")
+# UI Streamlit
+st.set_page_config(page_title="Deteksi Toxic Comments", layout="centered")
+st.title("🔍 Deteksi Toxic Comments Bahasa Indonesia")
+
+user_input = st.text_area("💬 Masukkan teks:", height=150)
+
 if st.button("Periksa"):
-    if user_input:
-        prob = predict_toxicity(user_input)
-        st.write(f"**{'🚫 Toxic' if prob > 0.5 else '✅ Aman'}** (Skor: {prob:.4f}")
+    if not user_input.strip():
+        st.warning("Silakan masukkan teks terlebih dahulu!")
     else:
-        st.warning("Masukkan teks terlebih dahulu!")
+        prob = predict_toxicity(user_input)
+        label = "Toxic 🚫" if prob > 0.5 else "Non-Toxic ✅"
+        st.subheader("Hasil Deteksi:")
+        st.write(f"**{label}** (Skor: {prob:.4f})")
+        st.progress(round(prob if label == "Toxic 🚫" else 1 - prob, 2))
