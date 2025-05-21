@@ -1,0 +1,4 @@
+torch>=2.2.0
+transformers>=4.40.0
+streamlit>=1.35.0
+gdown>=4.7.0
