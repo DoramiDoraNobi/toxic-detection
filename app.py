@@ -1,66 +1,70 @@
 import streamlit as st
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import re
 import gdown
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Fungsi untuk normalisasi teks
-def normalize_text(text: str) -> str:
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', '', text)
-    text = re.sub(r'\d+', '', text)
-    return ' '.join(text.split())
-
-# Cache model dan tokenizer hanya sekali di Streamlit
+# Cache resources dengan benar
 @st.cache_resource
-def load_model_tokenizer():
-    # Download model dari Google Drive
+def load_model():
+    # Download model
     url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa"
     output = "best_model.pt"
     gdown.download(url, output, quiet=True)
-
-    # Load model
+    
+    # Load model dengan config
     model = AutoModelForSequenceClassification.from_pretrained(
         "flax-community/indonesian-roberta-base",
-        num_labels=1
+        num_labels=1,
+        ignore_mismatched_sizes=True
     )
-    model.load_state_dict(torch.load(output, map_location="cpu"))
-    model.eval()
-
+    model.load_state_dict(torch.load(output, map_location='cpu'))
+    
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained("flax-community/indonesian-roberta-base")
+    
     return model, tokenizer
 
-# Inisialisasi model dan tokenizer
-model, tokenizer = load_model_tokenizer()
+# Inisialisasi awal
+try:
+    model, tokenizer = load_model()
+except Exception as e:
+    st.error(f"Gagal memuat model: {str(e)}")
+    st.stop()
 
-# Fungsi prediksi
-def predict_toxicity(text: str) -> float:
-    normalized = normalize_text(text)
-    inputs = tokenizer(
-        normalized,
-        padding="max_length",
-        truncation=True,
-        max_length=512,
-        return_tensors="pt"
-    )
-    with torch.no_grad():
-        outputs = model(**inputs)
-    score = torch.sigmoid(outputs.logits.squeeze()).item()
-    return score
+def predict_toxicity(text):
+    try:
+        # Preprocessing
+        text = re.sub(r'[^\w\s]', '', text.lower()).strip()
+        if not text:
+            return 0.5
+            
+        # Tokenisasi
+        inputs = tokenizer(
+            text,
+            max_length=512,
+            padding='max_length',
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        # Inference
+        with torch.inference_mode():
+            outputs = model(**inputs)
+            
+        return torch.sigmoid(outputs.logits.squeeze()).item()
+        
+    except Exception as e:
+        st.error(f"Error prediksi: {str(e)}")
+        return 0.5
 
-# UI Streamlit
-st.set_page_config(page_title="Deteksi Toxic Comments", layout="centered")
-st.title("🔍 Deteksi Toxic Comments Bahasa Indonesia")
-
-user_input = st.text_area("💬 Masukkan teks:", height=150)
-
+# UI
+st.title('🔍 Deteksi Konten Toxic')
+user_input = st.text_area("Masukkan teks:")
 if st.button("Periksa"):
-    if not user_input.strip():
-        st.warning("Silakan masukkan teks terlebih dahulu!")
-    else:
+    if user_input:
         prob = predict_toxicity(user_input)
-        label = "Toxic 🚫" if prob > 0.5 else "Non-Toxic ✅"
-        st.subheader("Hasil Deteksi:")
-        st.write(f"**{label}** (Skor: {prob:.4f})")
-        st.progress(round(prob if label == "Toxic 🚫" else 1 - prob, 2))
+        st.write(f"**Hasil:** {'🚫 Toxic' if prob > 0.5 else '✅ Aman'}")
+        st.write(f"Skor Keyakinan: {prob:.4f}")
+    else:
+        st.warning("Silakan masukkan teks terlebih dahulu!")
