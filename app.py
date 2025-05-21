@@ -4,15 +4,16 @@ import re
 import gdown
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-# Cache resources dengan benar
 @st.cache_resource
 def load_model():
-    # Download model
-    url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa"
+    # Download model dengan format khusus
+    url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa&confirm=t&format=download"
     output = "best_model.pt"
-    gdown.download(url, output, quiet=True)
     
-    # Load model dengan config
+    # Force download untuk menghindari cache
+    gdown.download(url, output, quiet=True, fuzzy=True)
+    
+    # Load model dengan config khusus
     model = AutoModelForSequenceClassification.from_pretrained(
         "flax-community/indonesian-roberta-base",
         num_labels=1,
@@ -25,11 +26,10 @@ def load_model():
     
     return model, tokenizer
 
-# Inisialisasi awal
 try:
     model, tokenizer = load_model()
 except Exception as e:
-    st.error(f"Gagal memuat model: {str(e)}")
+    st.error(f"Error: {str(e)}")
     st.stop()
 
 def predict_toxicity(text):
@@ -39,7 +39,6 @@ def predict_toxicity(text):
         if not text:
             return 0.5
             
-        # Tokenisasi
         inputs = tokenizer(
             text,
             max_length=512,
@@ -48,23 +47,21 @@ def predict_toxicity(text):
             return_tensors="pt"
         )
         
-        # Inference
         with torch.inference_mode():
             outputs = model(**inputs)
             
         return torch.sigmoid(outputs.logits.squeeze()).item()
         
     except Exception as e:
-        st.error(f"Error prediksi: {str(e)}")
+        st.error(f"Prediction error: {str(e)}")
         return 0.5
 
 # UI
 st.title('🔍 Deteksi Konten Toxic')
 user_input = st.text_area("Masukkan teks:")
-if st.button("Periksa"):
-    if user_input:
-        prob = predict_toxicity(user_input)
-        st.write(f"**Hasil:** {'🚫 Toxic' if prob > 0.5 else '✅ Aman'}")
-        st.write(f"Skor Keyakinan: {prob:.4f}")
-    else:
-        st.warning("Silakan masukkan teks terlebih dahulu!")
+if st.button("Periksa") and user_input:
+    prob = predict_toxicity(user_input)
+    st.write(f"**Hasil:** {'🚫 Toxic' if prob > 0.5 else '✅ Aman'}")
+    st.write(f"Skor Keyakinan: {prob:.4f}")
+elif not user_input:
+    st.warning("Silakan masukkan teks terlebih dahulu!")
