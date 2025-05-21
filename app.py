@@ -4,34 +4,46 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import re
 import gdown
 
+# Inisialisasi model dan tokenizer di luar cache untuk akses global
+model = None
+tokenizer = None
+
 def normalize_text(text):
     text = text.lower()
-    text = re.sub(r'[^\w\s]', '', text)  # Hapus tanda baca
-    text = re.sub(r'\d+', '', text)      # Hapus angka
-    text = ' '.join(text.split())        # Hapus spasi berlebih
-    return text
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\d+', '', text)
+    return ' '.join(text.split())
 
 @st.cache_resource
 def load_model():
-    # Ganti "1FILE_ID" dengan ID file Google Drive Anda
-    url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa"
-    output = "best_model.pt"
+    global model, tokenizer  # Gunakan global variable
     
     # Download model
+    url = "https://drive.google.com/uc?id=11ohiewVNh2I7nLP12PypjzOnuU6boNOa"
+    output = "best_model.pt"
     gdown.download(url, output, quiet=False)
     
-    # Load model
+    # Load model dan tokenizer
     model = AutoModelForSequenceClassification.from_pretrained(
         "flax-community/indonesian-roberta-base", 
         num_labels=1
     )
-    model.load_state_dict(torch.load(output, map_location=torch.device('cpu')))
+    model.load_state_dict(torch.load(output, map_location='cpu'))
+    
     tokenizer = AutoTokenizer.from_pretrained("flax-community/indonesian-roberta-base")
     
     return model, tokenizer
 
+# Panggil fungsi load_model() saat aplikasi dimulai
+load_model()
+
 def predict_toxicity(text):
     normalized_text = normalize_text(text)
+    
+    # Pastikan tokenizer sudah terinisialisasi
+    if tokenizer is None:
+        st.error("Tokenizer belum terinisialisasi!")
+        return 0.5
     
     inputs = tokenizer(
         normalized_text,
@@ -44,28 +56,20 @@ def predict_toxicity(text):
     with torch.no_grad():
         outputs = model(**inputs)
     
-    prob = torch.sigmoid(outputs.logits.squeeze()).item()
-    return prob
+    return torch.sigmoid(outputs.logits.squeeze()).item()
 
-# UI Streamlit
+# UI
 st.title('🔍 Deteksi Toxic Comments Bahasa Indonesia')
-st.write("Aplikasi deteksi komentar toxic menggunakan model RoBERTa")
-
 user_input = st.text_area("Masukkan teks yang ingin diperiksa:", "")
 predict_btn = st.button("Periksa")
 
-if predict_btn and user_input:
-    probability = predict_toxicity(user_input)
-    threshold = 0.5
-    prediction = "Toxic 🚫" if probability > threshold else "Non-Toxic ✅"
-    
-    st.subheader("Hasil Deteksi:")
-    st.write(f"Prediksi: **{prediction}**")
-    st.write(f"Skor Keyakinan: {probability:.4f}")
-    
-    # Visualisasi
-    progress_value = probability if prediction == "Toxic 🚫" else (1 - probability)
-    st.progress(round(progress_value, 2))
-
-elif predict_btn and not user_input:
-    st.warning("Silakan masukkan teks terlebih dahulu!")
+if predict_btn:
+    if user_input:
+        probability = predict_toxicity(user_input)
+        prediction = "Toxic 🚫" if probability > 0.5 else "Non-Toxic ✅"
+        
+        st.subheader("Hasil Deteksi:")
+        st.write(f"**{prediction}** (Skor: {probability:.4f})")
+        st.progress(round(probability if prediction == "Toxic 🚫" else 1 - probability, 2))
+    else:
+        st.warning("Silakan masukkan teks terlebih dahulu!")
