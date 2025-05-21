@@ -57,7 +57,7 @@ def predict_toxicity(text):
         return 0.5
 
 # UI
-st.title('🔍 Deteksi Konten Toxic')
+st.title('🔍 Deteksi Ujaran Kebencian')
 user_input = st.text_area("Masukkan teks:")
 if st.button("Periksa") and user_input:
     prob = predict_toxicity(user_input)
